@@ -175,6 +175,12 @@ const TEACHER_HELP =
 	"/delete KOD — testni o'chirish\n" +
 	"/cancel — amalni bekor qilish";
 
+const TEACHER_COMMANDS = [
+	["start", "Boshlash"], ["newgroup", "Yangi guruh"], ["groups", "Guruhlar"], ["prompt", "Claude/ChatGPT uchun prompt"],
+	["newtest", "Yangi test"], ["send", "Testni guruhga yuborish"], ["mytests", "Testlarim"], ["results", "Natijalar"],
+	["cancel", "Bekor qilish"],
+].map(([command, description]) => ({ command, description }));
+
 const AI_PROMPT = `Menga [MAVZU] bo'yicha [SONI] ta test savoli tuzib ber. Qiyinlik: [oson / o'rta / qiyin].
 
 Har bir savolda 4 ta variant (A, B, C, D) va faqat bitta to'g'ri javob bo'lsin. To'g'ri javoblar o'rni aralash bo'lsin.
@@ -581,7 +587,11 @@ async function onMessage(msg: TgMessage) {
 	}
 	if (cmd === "start") {
 		await clearState(user.id);
-		if (admin && !args) return send(chatId, TEACHER_HELP);
+		if (admin && !args) {
+			// o'qituvchiga "/" menyusida o'z buyruqlarini ko'rsatamiz
+			await tg("setMyCommands", { commands: TEACHER_COMMANDS, scope: { type: "chat", chat_id: chatId } }).catch(() => {});
+			return send(chatId, TEACHER_HELP);
+		}
 		if (!(await getStudent(user.id))) {
 			await setState(user.id, "student:name", { code: args });
 			return send(chatId, "Assalomu alaykum! 👋\nIsm va familiyangizni yozing:");
