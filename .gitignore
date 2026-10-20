@@ -3,3 +3,6 @@ bot.db
 bot.log
 __pycache__/
 *.pyc
+.cloudflare/
+.wrangler/
+node_modules/
