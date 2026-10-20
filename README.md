@@ -2,6 +2,24 @@
 
 O'qituvchi test yuklaydi -> talabalar bot orqali yechadi -> har bir natija o'qituvchiga keladi.
 
+## Cloudflare Workers (asosiy, bepul)
+Bot `worker/` papkasida, Cloudflare Workers + D1 bazasida ishlaydi (webhook orqali).
+
+```bash
+cd worker
+npm install
+cf auth login
+cf deploy --secrets-file secrets.json   # {"BOT_TOKEN": "...", "WEBHOOK_SECRET": "..."}
+cf d1 migrations apply <D1_ID>          # birinchi marta: jadvallarni yaratish
+```
+Keyin Telegram webhook'ini o'rnatish (bir marta):
+`https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://testbot.anki-bot.workers.dev/webhook&secret_token=<WEBHOOK_SECRET>`
+
+O'qituvchi ID si va bot nomi `worker/cloudflare.config.ts` da.
+
+## Python versiyasi (kompyuter yoki VPS uchun)
+Webhook o'rnatilgan bo'lsa, Python versiyasi ishlamaydi (avval `deleteWebhook` qiling).
+
 ## O'rnatish
 1. @BotFather da yangi bot yarating, tokenni oling.
 2. @userinfobot ga yozib o'z Telegram ID ingizni bilib oling.

@@ -162,7 +162,7 @@ def clean_ai_text(raw: str) -> str:
     lines = []
     for line in raw.replace("\r\n", "\n").splitlines():
         if line.strip().startswith("```"):
-            continue
+            line = ""  # bo'sh qator — blokdan keyingi gap oxirgi savolga yopishmasin
         line = line.replace("**", "").replace("__", "")
         line = re.sub(r"^\s*#+\s*", "", line)
         lines.append(line)
