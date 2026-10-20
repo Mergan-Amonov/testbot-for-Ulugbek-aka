@@ -14,7 +14,7 @@ export default defineConfig({
 			DB: bindings.d1({ name: "testbot-db" }),
 			BOT_TOKEN: bindings.secret(),
 			WEBHOOK_SECRET: bindings.secret(),
-			ADMIN_IDS: bindings.text("768225297"),
+			ADMIN_IDS: bindings.text("768225297,1375907081"),
 			BOT_USERNAME: bindings.text("english_test_practise_bot"),
 		},
 	},
