@@ -16,6 +16,8 @@ export default defineConfig({
 			WEBHOOK_SECRET: bindings.secret(),
 			ADMIN_IDS: bindings.text("768225297,1375907081"),
 			BOT_USERNAME: bindings.text("english_test_practise_bot"),
+			// talabalar testni yechadigan sayt (shu worker o'zi)
+			SITE_URL: bindings.text("https://testbot.anki-bot.workers.dev"),
 		},
 	},
 });

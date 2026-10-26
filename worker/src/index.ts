@@ -1,98 +1,12 @@
 // Telegram test bot — Cloudflare Workers versiyasi (webhook + D1).
 // Mantiq Python versiyasi (../bot.py) bilan bir xil.
 import { env } from "cloudflare:workers";
-
-// ---------------- Telegram turlari ----------------
-
-interface TgUser { id: number; username?: string }
-interface TgDocument { file_id: string; file_name?: string; file_size?: number }
-interface TgMessage { message_id: number; chat: { id: number }; from?: TgUser; text?: string; caption?: string; document?: TgDocument }
-interface TgCallback { id: string; from: TgUser; data?: string; message?: TgMessage }
-interface TgUpdate { message?: TgMessage; callback_query?: TgCallback }
-type Button = { text: string; callback_data?: string; url?: string };
-type Keyboard = { inline_keyboard: Button[][] };
-
-type Row = Record<string, any>;
-type Question = { text: string; options: string[]; correct: string };
-
-// ---------------- Yordamchilar ----------------
-
-const isAdmin = (id: number) => env.ADMIN_IDS.split(",").map((x) => Number(x.trim())).includes(id);
-const now = () => new Date().toISOString().slice(0, 19);
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const kb = (rows: Button[][]): Keyboard => ({ inline_keyboard: rows });
-const startLink = (arg: string) => `https://t.me/${env.BOT_USERNAME}?start=${arg}`;
-
-async function tg(method: string, params: Record<string, unknown>): Promise<any> {
-	const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(params),
-	});
-	const data: any = await res.json();
-	if (!data.ok) throw new Error(`${method}: ${data.description}`);
-	return data.result;
-}
-
-const send = (chatId: number, text: string, markup?: Keyboard) =>
-	tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: markup, link_preview_options: { is_disabled: true } });
-
-const editText = (msg: TgMessage, text: string, markup?: Keyboard) =>
-	tg("editMessageText", { chat_id: msg.chat.id, message_id: msg.message_id, text, parse_mode: "HTML", reply_markup: markup });
-
-const removeKb = (msg: TgMessage) =>
-	tg("editMessageReplyMarkup", { chat_id: msg.chat.id, message_id: msg.message_id }).catch(() => {});
-
-// ---------------- Ma'lumotlar bazasi ----------------
-
-const one = (sql: string, ...args: unknown[]) => env.DB.prepare(sql).bind(...args).first<Row>();
-const all = async (sql: string, ...args: unknown[]) => (await env.DB.prepare(sql).bind(...args).all<Row>()).results;
-const run = (sql: string, ...args: unknown[]) => env.DB.prepare(sql).bind(...args).run();
-
-async function newCode(table: "tests" | "groups") {
-	for (;;) {
-		const code = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
-		if (!(await one(`SELECT 1 FROM ${table} WHERE code=?`, code))) return code;
-	}
-}
-
-const getTest = (code: string) => one("SELECT * FROM tests WHERE code=?", code);
-const getQuestions = (testId: number) => all("SELECT * FROM questions WHERE test_id=? ORDER BY position", testId);
-const getStudent = (userId: number) => one("SELECT * FROM students WHERE user_id=?", userId);
-const getGroup = (groupId: number) => one("SELECT * FROM groups WHERE id=?", groupId);
-
-const ownerGroups = (ownerId: number) =>
-	all(
-		`SELECT g.*, (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id) AS n
-		 FROM groups g WHERE owner_id=? ORDER BY name`,
-		ownerId,
-	);
-
-async function studentGroupNames(userId: number, ownerId: number) {
-	const rows = await all(
-		`SELECT g.name FROM groups g JOIN group_members m ON m.group_id=g.id
-		 WHERE m.user_id=? AND g.owner_id=? ORDER BY g.name`,
-		userId, ownerId,
-	);
-	return rows.map((r) => r.name as string);
-}
-
-// ---------------- Holat (FSM) ----------------
-
-type State = { state: string | null; data: Row };
-
-async function getState(userId: number): Promise<State> {
-	const row = await one("SELECT state, data FROM states WHERE user_id=?", userId);
-	return row ? { state: row.state, data: JSON.parse(row.data) } : { state: null, data: {} };
-}
-
-const setState = (userId: number, state: string | null, data: Row = {}) =>
-	run(
-		"INSERT INTO states (user_id, state, data) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET state=excluded.state, data=excluded.data",
-		userId, state, JSON.stringify(data),
-	);
-
-const clearState = (userId: number) => run("DELETE FROM states WHERE user_id=?", userId);
+import {
+	type Question, type Row, type State, type TgCallback, type TgMessage, type TgUpdate, type TgUser,
+	all, clearState, editText, esc, getGroup, getQuestions, getState, getStudent, getTest, isAdmin, kb, newCode,
+	now, one, ownerGroups, run, saveResult, send, setState, startLink, tg, webLink,
+} from "./common.ts";
+import { handleWeb, onWebLoginContact, onWebLoginStart } from "./web.ts";
 
 // ---------------- Test matnini o'qish ----------------
 
@@ -202,12 +116,21 @@ async function saveTest(chatId: number, ownerId: number, title: string, question
 		"INSERT INTO tests (code, title, owner_id, created_at) VALUES (?, ?, ?, ?) RETURNING id",
 		code, title, ownerId, now(),
 	);
-	const insert = env.DB.prepare("INSERT INTO questions (test_id, position, text, options, correct) VALUES (?, ?, ?, ?, ?)");
-	await env.DB.batch(questions.map((q, i) => insert.bind(test!.id, i, q.text, q.options.join("\n"), q.correct)));
+	// bitta so'rovda 20 tadan savol (D1: so'rovda 100 ta parametr, bepul tarifda chaqiruvda 50 ta so'rov limiti)
+	const chunks: D1PreparedStatement[] = [];
+	for (let i = 0; i < questions.length; i += 20) {
+		const part = questions.slice(i, i + 20);
+		chunks.push(
+			env.DB.prepare(
+				"INSERT INTO questions (test_id, position, text, options, correct) VALUES " + part.map(() => "(?, ?, ?, ?, ?)").join(", "),
+			).bind(...part.flatMap((q, j) => [test!.id, i + j, q.text, q.options.join("\n"), q.correct])),
+		);
+	}
+	await env.DB.batch(chunks);
 	await send(
 		chatId,
 		`✅ Test yaratildi!\n\n📝 <b>${esc(title)}</b>\n❓ Savollar: ${questions.length} ta\n🔑 Kod: <code>${code}</code>\n\n` +
-			`Havola: ${startLink(code)}\n\nHar bir talaba testni tugatganda natija sizga keladi.`,
+			`Havola: ${startLink(code)}\nSaytda yechish: ${webLink(code)}\n\nHar bir talaba testni tugatganda natija sizga keladi.`,
 	);
 	await askSendGroups(chatId, ownerId, test!.id, code);
 }
@@ -425,7 +348,10 @@ async function onSendCallback(call: TgCallback, msg: TgMessage, ctx: ExecutionCo
 	);
 	const payload = JSON.stringify({
 		text: `📝 Yangi test: <b>${esc(test.title)}</b>`,
-		reply_markup: kb([[{ text: "▶️ Testni boshlash", url: startLink(test.code) }]]),
+		reply_markup: kb([
+			[{ text: "▶️ Testni boshlash", url: startLink(test.code) }],
+			[{ text: "🌐 Saytda yechish", url: webLink(test.code) }],
+		]),
 	});
 	const insert = env.DB.prepare("INSERT INTO outbox (chat_id, payload) VALUES (?, ?)");
 	if (members.length) await env.DB.batch(members.map((m) => insert.bind(m.user_id, payload)));
@@ -535,33 +461,9 @@ async function onAnswer(call: TgCallback, msg: TgMessage) {
 }
 
 async function finishTest(chatId: number, user: TgUser, testId: number, questions: Row[], answers: string[]) {
-	const score = questions.filter((q, i) => q.correct === answers[i]).length;
-	const total = questions.length;
-	const pct = Math.round((score * 100) / total);
-	const inserted = await run(
-		"INSERT OR IGNORE INTO results (test_id, user_id, answers, score, total, finished_at) VALUES (?, ?, ?, ?, ?, ?)",
-		testId, user.id, answers.join(""), score, total, now(),
-	);
-	if (!inserted.meta.changes) return send(chatId, "Siz bu testni allaqachon topshirgansiz.");
-	const test = (await one("SELECT * FROM tests WHERE id=?", testId))!;
-	const student = await getStudent(user.id);
-
-	await send(chatId, `🏁 Test tugadi!\n\n✅ To'g'ri javoblar: <b>${score}/${total}</b> (${pct}%)\n\nNatijangiz o'qituvchiga yuborildi.`);
-
-	const details = questions.map((q, i) =>
-		`${i + 1}. ${answers[i]} ${q.correct === answers[i] ? "✅" : `❌ (to'g'ri: ${q.correct})`}`,
-	);
-	const groupNames = await studentGroupNames(user.id, test.owner_id);
-	const report =
-		`📥 <b>Yangi natija</b>\n\n👤 ${esc(student?.full_name ?? "")}${user.username ? esc(` (@${user.username})`) : ""}\n` +
-		(groupNames.length ? `👥 ${esc(groupNames.join(", "))}\n` : "") +
-		`📝 ${esc(test.title)} (<code>${test.code}</code>)\n✅ Natija: <b>${score}/${total}</b> (${pct}%)\n\n` +
-		details.join("\n");
-	try {
-		await send(test.owner_id, report.slice(0, 4096));
-	} catch (e) {
-		console.error("O'qituvchiga natija yuborilmadi", String(e));
-	}
+	const res = await saveResult(user, testId, questions, answers);
+	if (!res) return send(chatId, "Siz bu testni allaqachon topshirgansiz.");
+	await send(chatId, `🏁 Test tugadi!\n\n✅ To'g'ri javoblar: <b>${res.score}/${res.total}</b> (${res.pct}%)\n\nNatijangiz o'qituvchiga yuborildi.`);
 }
 
 // ---------------- Xabarlarni yo'naltirish ----------------
@@ -579,6 +481,10 @@ async function onMessage(msg: TgMessage) {
 		cmd = first.slice(1).split("@")[0].toLowerCase();
 		args = rest.join(" ").trim();
 	}
+
+	// saytga kirish: /start web_<token> va telefon raqami
+	if (cmd === "start" && args.startsWith("web_")) return onWebLoginStart(chatId, user, args.slice(4));
+	if (msg.contact) return onWebLoginContact(chatId, user, msg.contact);
 
 	// buyruqlar har qanday holatda ishlaydi (/done va /skip — holatga bog'liq)
 	if (cmd === "cancel") {
@@ -719,9 +625,7 @@ async function onCallback(call: TgCallback, ctx: ExecutionContext) {
 export default {
 	async fetch(request, _env, ctx) {
 		const url = new URL(request.url);
-		if (request.method !== "POST" || url.pathname !== "/webhook") {
-			return new Response("Test bot ishlayapti ✅", { headers: { "content-type": "text/plain; charset=utf-8" } });
-		}
+		if (request.method !== "POST" || url.pathname !== "/webhook") return handleWeb(request, url);
 		if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
 			return new Response("forbidden", { status: 403 });
 		}

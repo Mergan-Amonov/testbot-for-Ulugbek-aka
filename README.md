@@ -15,7 +15,17 @@ cf d1 migrations apply <D1_ID>          # birinchi marta: jadvallarni yaratish
 Keyin Telegram webhook'ini o'rnatish (bir marta):
 `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://testbot.anki-bot.workers.dev/webhook&secret_token=<WEBHOOK_SECRET>`
 
-O'qituvchi ID si va bot nomi `worker/cloudflare.config.ts` da.
+O'qituvchi ID si, bot nomi va sayt manzili (`SITE_URL`) `worker/cloudflare.config.ts` da.
+
+## Sayt (talabalar uchun)
+Shu worker sayt ham: https://testbot.anki-bot.workers.dev
+- Talaba "Telegram orqali kirish" ni bosadi -> bot telefon raqamini so'raydi va bitta raqam beradi ->
+  saytdagi uchta raqamdan mosini bosadi. Botda ism yozmagan bo'lsa, saytda ism-familiyasini yozadi.
+- Bosh sahifada: test kodi kiritish, guruhga yuborilgan testlar, topshirilgan testlar natijasi.
+- Test havolasi: `/t/KOD` (bot test yaratilganda va guruhga yuborilganda shu havolani ham beradi).
+- Natija botdagidek o'qituvchiga keladi, test bir marta topshiriladi (bot yoki sayt — qaysi biri bo'lsa ham).
+
+Yangilashda bazaga yangi jadvallarni qo'shish: `cf d1 migrations apply <D1_ID>` (`0002_web.sql`).
 
 ## Python versiyasi (kompyuter yoki VPS uchun)
 Webhook o'rnatilgan bo'lsa, Python versiyasi ishlamaydi (avval `deleteWebhook` qiling).
