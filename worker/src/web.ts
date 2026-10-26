@@ -126,6 +126,7 @@ button.opt:disabled { cursor: default; opacity: 1; }
 .made { position: fixed; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px;
 	background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: var(--muted); font-size: 12px; z-index: 10; }
 main { padding-bottom: 88px; }
+.made a { color: inherit; text-decoration: none; } .made a:hover b { color: var(--accent); }
 .made img { border-radius: 10px; cursor: pointer; transition: transform .15s; } .made img:hover { transform: rotate(-8deg) scale(1.1); }
 .bar { height: 6px; background: var(--line); border-radius: 3px; margin-bottom: 16px; overflow: hidden; }
 .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
@@ -139,7 +140,7 @@ main { padding-bottom: 88px; }
 // Pastki yozuv: ikki stikerdan biri tasodifiy chiqadi, bosilsa almashadi.
 const FOOTER = `<footer class="made">
 	<img id="sticker" src="/sticker/hehe.webp" alt="mushuk stiker" width="44" height="44">
-	<span>made by <b>Mergan</b></span>
+	<a href="https://t.me/merganjan" target="_blank" rel="noopener">made by <b>Mergan</b></a>
 </footer>
 <script>
 	(function () {
